@@ -1,0 +1,53 @@
+import type { Audit } from '../types'
+
+export const demoAudit: Audit = {
+  id: 'audit-demo-001',
+  clientName: 'GWR Pilot Client',
+  siteName: 'Al Safa Central Kitchen',
+  location: 'Dubai, UAE',
+  language: 'en',
+  status: 'in_progress',
+  score: 84,
+  evidence: [],
+  findings: [
+    {
+      id: 'finding-001',
+      area: 'Cold storage',
+      issue: 'Walk-in chiller door gasket shows mildew and weak seal pressure.',
+      code: 'Dubai Food Code 3.5.4',
+      severity: 'Major',
+      action: 'Clean, sanitize, and schedule gasket replacement before next peak shift.',
+      due: '24h',
+      owner: 'Maintenance',
+      status: 'open',
+    },
+    {
+      id: 'finding-002',
+      area: 'Preparation line',
+      issue: 'Raw poultry board stored beside ready-to-eat garnish tray.',
+      code: 'HACCP CCP-3',
+      severity: 'Critical',
+      action: 'Separate tools immediately, sanitize station, brief kitchen team.',
+      due: 'Now',
+      owner: 'Chef de Partie',
+      status: 'open',
+    },
+    {
+      id: 'finding-003',
+      area: 'Dry store',
+      issue: 'Two bulk flour bins missing production-date labels.',
+      code: 'GWR FS Q12',
+      severity: 'Minor',
+      action: 'Apply traceability labels and verify FIFO sequence.',
+      due: '48h',
+      owner: 'Storekeeper',
+      status: 'open',
+    },
+  ],
+  checklist: [
+    { id: 'score-001', label: 'Temperature controls', score: 91, icon: 'temperature' },
+    { id: 'score-002', label: 'Cross-contamination', score: 74, icon: 'shield' },
+    { id: 'score-003', label: 'Cleaning records', score: 82, icon: 'cleaning' },
+    { id: 'score-004', label: 'Staff hygiene', score: 88, icon: 'hygiene' },
+  ],
+}
