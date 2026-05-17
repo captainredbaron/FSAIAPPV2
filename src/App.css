@@ -5,6 +5,72 @@
   background: #f5f6f4;
 }
 
+.login-shell {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background:
+    linear-gradient(rgba(245, 246, 244, 0.88), rgba(245, 246, 244, 0.94)),
+    url('/icon-512.png') center / 220px no-repeat,
+    #f5f6f4;
+}
+
+.login-panel {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 22px;
+  padding: 28px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
+}
+
+.login-brand {
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.login-form {
+  display: grid;
+  gap: 14px;
+}
+
+.login-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.login-form input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  color: var(--ink);
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.login-form input:focus {
+  outline: 3px solid rgba(9, 101, 106, 0.16);
+  border-color: var(--teal);
+}
+
+.login-error {
+  padding: 10px 12px;
+  color: #7f1d1d;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .sidebar {
   min-height: 100svh;
   padding: 22px;
@@ -97,6 +163,27 @@
 .auditor-card svg,
 .offline-panel svg {
   color: var(--teal);
+}
+
+.logout-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  color: var(--muted);
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+}
+
+.logout-button:hover {
+  color: var(--ink);
+  background: var(--soft);
 }
 
 .offline-panel {

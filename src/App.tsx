@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { FormEvent } from 'react'
 import {
   AlertTriangle,
   Bell,
@@ -11,6 +12,8 @@ import {
   FileUp,
   History,
   ListChecks,
+  LockKeyhole,
+  LogOut,
   MapPin,
   Mic,
   PlayCircle,
@@ -57,6 +60,10 @@ type AuditHistoryItem = {
   submittedAt: string
   status: 'Submitted' | 'Accepted'
 }
+
+const appUsername = import.meta.env.VITE_APP_USERNAME || 'gwr'
+const appPassword = import.meta.env.VITE_APP_PASSWORD || 'audit2026'
+const authStorageKey = 'gwr-food-safety-authenticated'
 
 const assignedAudits: AssignedAudit[] = [
   {
@@ -146,6 +153,12 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<BlobPart[]>([])
+  const [isAuthenticated, setIsAuthenticated] = useState(
+    () => localStorage.getItem(authStorageKey) === 'true',
+  )
+  const [loginUsername, setLoginUsername] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loginError, setLoginError] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<View>('assigned')
   const [audit, setAudit] = useState<Audit>(() => loadAuditDraft(demoAudit))
   const [selectedAssignment, setSelectedAssignment] = useState(assignedAudits[0])
@@ -290,6 +303,27 @@ function App() {
     recorder.stop()
   }
 
+  function handleLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (loginUsername.trim() === appUsername && loginPassword === appPassword) {
+      localStorage.setItem(authStorageKey, 'true')
+      setIsAuthenticated(true)
+      setLoginError(null)
+      setLoginPassword('')
+      return
+    }
+
+    setLoginError('Invalid username or password')
+  }
+
+  function handleLogout() {
+    localStorage.removeItem(authStorageKey)
+    setIsAuthenticated(false)
+    setLoginUsername('')
+    setLoginPassword('')
+  }
+
   function updateFindingStatus(id: string, status: Finding['status']) {
     setAudit((current) => ({
       ...current,
@@ -301,6 +335,52 @@ function App() {
     void updateRemoteFindingStatus(id, status).catch((error) => {
       setSyncError(error instanceof Error ? error.message : 'Finding sync failed')
     })
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <main className="login-shell">
+        <section className="login-panel" aria-label="Auditor login">
+          <div className="brand-lockup login-brand">
+            <img src="/brand/gwr-logo.png" alt="GWR Consulting" />
+            <div>
+              <strong>GWR Auditor</strong>
+              <span>Food safety field app</span>
+            </div>
+          </div>
+
+          <div>
+            <p className="eyebrow">Secure access</p>
+            <h1>Sign in to continue</h1>
+          </div>
+
+          <form className="login-form" onSubmit={handleLogin}>
+            <label>
+              Username
+              <input
+                autoComplete="username"
+                value={loginUsername}
+                onChange={(event) => setLoginUsername(event.target.value)}
+              />
+            </label>
+            <label>
+              Password
+              <input
+                autoComplete="current-password"
+                type="password"
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
+              />
+            </label>
+            {loginError && <p className="login-error">{loginError}</p>}
+            <button className="primary" type="submit">
+              <LockKeyhole size={18} />
+              Sign in
+            </button>
+          </form>
+        </section>
+      </main>
+    )
   }
 
   return (
@@ -348,6 +428,11 @@ function App() {
             <span>3 open audits today</span>
           </div>
         </div>
+
+        <button className="logout-button" type="button" onClick={handleLogout}>
+          <LogOut size={17} />
+          Sign out
+        </button>
 
         <div className="offline-panel">
           <CloudOff size={18} />
