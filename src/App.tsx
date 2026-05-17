@@ -15,6 +15,7 @@ import {
   Mic,
   PlayCircle,
   Send,
+  Square,
   Upload,
   Video,
   UserCheck,
@@ -130,14 +131,29 @@ function severityClass(severity: Severity) {
   return severity.toLowerCase()
 }
 
+function recordingMimeType() {
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+  return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ?? ''
+}
+
+function formatRecordingTime(seconds: number) {
+  const minutes = Math.floor(seconds / 60)
+  const remainder = seconds % 60
+  return `${minutes}:${remainder.toString().padStart(2, '0')}`
+}
+
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<BlobPart[]>([])
   const [activeView, setActiveView] = useState<View>('assigned')
   const [audit, setAudit] = useState<Audit>(() => loadAuditDraft(demoAudit))
   const [selectedAssignment, setSelectedAssignment] = useState(assignedAudits[0])
   const [isInspecting, setIsInspecting] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [evidenceMode, setEvidenceMode] = useState<'camera' | 'voice' | 'video' | 'upload'>('camera')
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false)
+  const [recordingSeconds, setRecordingSeconds] = useState(0)
   const [activeSectionId, setActiveSectionId] = useState(foodSafetyChecklist[0]?.id ?? '')
 
   const openFindings = audit.findings.filter((finding) => finding.status === 'open')
@@ -156,6 +172,22 @@ function App() {
     saveAuditDraft(audit)
   }, [audit])
 
+  useEffect(() => {
+    if (!isRecordingVoice) return
+
+    const timer = window.setInterval(() => {
+      setRecordingSeconds((current) => current + 1)
+    }, 1000)
+
+    return () => window.clearInterval(timer)
+  }, [isRecordingVoice])
+
+  useEffect(() => {
+    return () => {
+      mediaRecorderRef.current?.stream.getTracks().forEach((track) => track.stop())
+    }
+  }, [])
+
   function startAssignment(assignment: AssignedAudit) {
     setSelectedAssignment(assignment)
     setAudit((current) => ({
@@ -169,8 +201,8 @@ function App() {
     setActiveView('audit')
   }
 
-  async function handleFiles(files: FileList | null) {
-    if (!files?.length) return
+  async function handleFileArray(files: File[]) {
+    if (!files.length) return
 
     setIsInspecting(true)
     setSyncError(null)
@@ -184,9 +216,7 @@ function App() {
       }
 
       const results = await Promise.all(
-        Array.from(files).map((file) =>
-          uploadEvidenceAndInspect(file, targetAuditId, selectedSection?.title),
-        ),
+        files.map((file) => uploadEvidenceAndInspect(file, targetAuditId, selectedSection?.title)),
       )
 
       setAudit((current) => ({
@@ -201,6 +231,63 @@ function App() {
     } finally {
       setIsInspecting(false)
     }
+  }
+
+  async function handleFiles(files: FileList | null) {
+    await handleFileArray(Array.from(files ?? []))
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  async function startVoiceRecording() {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setSyncError('Voice recording is not supported in this browser.')
+      return
+    }
+
+    try {
+      setEvidenceMode('voice')
+      setSyncError(null)
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = recordingMimeType()
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      audioChunksRef.current = []
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data)
+      }
+
+      recorder.onstop = () => {
+        const audioType = recorder.mimeType || mimeType || 'audio/webm'
+        const audioBlob = new Blob(audioChunksRef.current, { type: audioType })
+        stream.getTracks().forEach((track) => track.stop())
+        mediaRecorderRef.current = null
+        setIsRecordingVoice(false)
+
+        if (!audioBlob.size) return
+
+        const extension = audioType.includes('mp4') ? 'm4a' : audioType.includes('ogg') ? 'ogg' : 'webm'
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+        const file = new File([audioBlob], `voice-note-${timestamp}.${extension}`, {
+          type: audioType,
+        })
+
+        void handleFileArray([file])
+      }
+
+      mediaRecorderRef.current = recorder
+      recorder.start()
+      setRecordingSeconds(0)
+      setIsRecordingVoice(true)
+    } catch (error) {
+      setIsRecordingVoice(false)
+      setSyncError(error instanceof Error ? error.message : 'Microphone permission was not granted.')
+    }
+  }
+
+  function stopVoiceRecording() {
+    const recorder = mediaRecorderRef.current
+    if (!recorder || recorder.state === 'inactive') return
+    recorder.stop()
   }
 
   function updateFindingStatus(id: string, status: Finding['status']) {
@@ -415,6 +502,12 @@ function App() {
                     <AlertTriangle size={16} />
                     {isInspecting ? 'Analyzing evidence' : 'AI check ready'}
                   </div>
+                  {isRecordingVoice && (
+                    <div className="recording-strip" role="status">
+                      <span />
+                      Recording voice note {formatRecordingTime(recordingSeconds)}
+                    </div>
+                  )}
                 </div>
 
                 {syncError && <p className="sync-error">{syncError}</p>}
@@ -443,15 +536,18 @@ function App() {
                     Video
                   </button>
                   <button
-                    className="secondary"
+                    className={isRecordingVoice ? 'recording-button' : 'secondary'}
                     type="button"
                     onClick={() => {
-                      setEvidenceMode('voice')
-                      requestAnimationFrame(() => fileInputRef.current?.click())
+                      if (isRecordingVoice) {
+                        stopVoiceRecording()
+                      } else {
+                        void startVoiceRecording()
+                      }
                     }}
                   >
-                    <Mic size={18} />
-                    Voice
+                    {isRecordingVoice ? <Square size={18} /> : <Mic size={18} />}
+                    {isRecordingVoice ? 'Stop' : 'Voice'}
                   </button>
                   <button
                     className="secondary"

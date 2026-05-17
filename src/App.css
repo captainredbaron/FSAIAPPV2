@@ -471,6 +471,30 @@ button {
   font-weight: 700;
 }
 
+.recording-strip {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+  color: #ffffff;
+  background: rgba(17, 24, 39, 0.9);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.recording-strip span {
+  width: 9px;
+  height: 9px;
+  background: #ef4444;
+  border-radius: 999px;
+  box-shadow: 0 0 0 5px rgba(239, 68, 68, 0.18);
+}
+
 .sync-error {
   margin-top: 10px;
   padding: 10px 12px;
@@ -487,6 +511,12 @@ button {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 14px;
+}
+
+.recording-button {
+  color: #ffffff;
+  background: var(--crimson);
+  border-color: var(--crimson);
 }
 
 .evidence-list {
