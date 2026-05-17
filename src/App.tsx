@@ -27,9 +27,9 @@ import {
 import { demoAudit } from './data/demoAudit'
 import { foodSafetyChecklist } from './data/foodSafetyChecklist'
 import {
-  createRemoteAudit,
+  createLocalEvidenceAndInspect,
+  submitAuditToDatabase,
   updateRemoteFindingStatus,
-  uploadEvidenceAndInspect,
 } from './lib/auditRepository'
 import { isSupabaseConfigured } from './lib/supabase'
 import { loadAuditDraft, saveAuditDraft } from './lib/storage'
@@ -153,6 +153,7 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<BlobPart[]>([])
+  const evidenceFilesRef = useRef<Map<string, File>>(new Map())
   const [isAuthenticated, setIsAuthenticated] = useState(
     () => localStorage.getItem(authStorageKey) === 'true',
   )
@@ -163,7 +164,9 @@ function App() {
   const [audit, setAudit] = useState<Audit>(() => loadAuditDraft(demoAudit))
   const [selectedAssignment, setSelectedAssignment] = useState(assignedAudits[0])
   const [isInspecting, setIsInspecting] = useState(false)
+  const [isSubmittingAudit, setIsSubmittingAudit] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
+  const [submitMessage, setSubmitMessage] = useState<string | null>(null)
   const [evidenceMode, setEvidenceMode] = useState<'camera' | 'voice' | 'video' | 'upload'>('camera')
   const [isRecordingVoice, setIsRecordingVoice] = useState(false)
   const [recordingSeconds, setRecordingSeconds] = useState(0)
@@ -219,22 +222,19 @@ function App() {
 
     setIsInspecting(true)
     setSyncError(null)
+    setSubmitMessage(null)
 
     try {
-      let targetAuditId = audit.id
-
-      if (isSupabaseConfigured && audit.id.startsWith('audit-demo')) {
-        const remoteAuditId = await createRemoteAudit(audit)
-        if (remoteAuditId) targetAuditId = remoteAuditId
-      }
-
       const results = await Promise.all(
-        files.map((file) => uploadEvidenceAndInspect(file, targetAuditId, selectedSection?.title)),
+        files.map((file) => createLocalEvidenceAndInspect(file, selectedSection?.title)),
       )
+
+      results.forEach((result, index) => {
+        evidenceFilesRef.current.set(result.evidence.id, files[index])
+      })
 
       setAudit((current) => ({
         ...current,
-        id: targetAuditId,
         score: Math.max(0, current.score - results.length * 2),
         evidence: [...current.evidence, ...results.map((result) => result.evidence)],
         findings: [...results.map((result) => result.finding), ...current.findings],
@@ -243,6 +243,39 @@ function App() {
       setSyncError(error instanceof Error ? error.message : 'Supabase sync failed')
     } finally {
       setIsInspecting(false)
+    }
+  }
+
+  async function submitAudit() {
+    if (isRecordingVoice) {
+      stopVoiceRecording()
+      setSyncError('Voice recording stopped. Tap Submit again after the audio is attached.')
+      return
+    }
+
+    if (!audit.evidence.length) {
+      setSyncError('Attach at least one photo, video, or voice note before submitting.')
+      return
+    }
+
+    setIsSubmittingAudit(true)
+    setSyncError(null)
+    setSubmitMessage(null)
+
+    try {
+      const result = await submitAuditToDatabase(audit, evidenceFilesRef.current)
+      setAudit((current) => ({
+        ...current,
+        id: result.auditId,
+        status: 'submitted',
+        evidence: result.evidence,
+      }))
+      evidenceFilesRef.current.clear()
+      setSubmitMessage('Audit submitted to database.')
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : 'Audit submission failed')
+    } finally {
+      setIsSubmittingAudit(false)
     }
   }
 
@@ -532,6 +565,18 @@ function App() {
                   <strong>{criticalCount}</strong>
                 </div>
               </div>
+              <div className="summary-actions">
+                <button
+                  className="primary"
+                  type="button"
+                  disabled={isSubmittingAudit || isInspecting || isRecordingVoice}
+                  onClick={() => void submitAudit()}
+                >
+                  <Send size={18} />
+                  {isSubmittingAudit ? 'Submitting' : 'Submit audit'}
+                </button>
+                <span>{audit.evidence.length} evidence files ready</span>
+              </div>
             </section>
 
             <section className="audit-layout">
@@ -596,6 +641,7 @@ function App() {
                 </div>
 
                 {syncError && <p className="sync-error">{syncError}</p>}
+                {submitMessage && <p className="submit-message">{submitMessage}</p>}
 
                 <div className="capture-actions">
                   <button
@@ -660,7 +706,7 @@ function App() {
                           </span>
                           <div>
                             <strong>{item.fileName}</strong>
-                            <small>{item.kind} · {item.synced ? 'synced' : 'local draft'}</small>
+                            <small>{item.kind} · {item.synced ? 'submitted to DB' : 'ready to submit'}</small>
                           </div>
                         </article>
                       )

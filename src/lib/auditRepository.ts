@@ -31,8 +31,8 @@ export async function createRemoteAudit(audit: Audit) {
   return data.id as string
 }
 
-export async function uploadEvidenceAndInspect(file: File, auditId: string, area = 'Unassigned area') {
-  const localEvidence: EvidenceItem = {
+export async function createLocalEvidenceAndInspect(file: File, area = 'Unassigned area') {
+  const evidence: EvidenceItem = {
     id: crypto.randomUUID(),
     fileName: file.name,
     kind: getEvidenceKind(file),
@@ -43,60 +43,82 @@ export async function uploadEvidenceAndInspect(file: File, auditId: string, area
     synced: false,
   }
 
-  if (!isSupabaseConfigured || !supabase || auditId.startsWith('audit-demo')) {
-    const finding = await inspectEvidence(localEvidence)
-    return { evidence: localEvidence, finding }
+  const finding = await inspectEvidence(evidence)
+  return { evidence, finding: { ...finding, evidenceId: evidence.id } }
+}
+
+export async function submitAuditToDatabase(audit: Audit, evidenceFiles: Map<string, File>) {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase is not configured for this deployment.')
   }
 
-  const storagePath = auditId + '/' + localEvidence.id + '-' + file.name
-  const upload = await supabase.storage.from('audit-evidence').upload(storagePath, file, {
-    cacheControl: '3600',
-    upsert: false,
-  })
+  const auditId = audit.id.startsWith('audit-demo')
+    ? await createRemoteAudit({ ...audit, status: 'submitted' })
+    : audit.id
 
-  if (upload.error) throw upload.error
+  if (!auditId) throw new Error('Could not create audit in Supabase.')
 
-  const evidenceInsert = await supabase
-    .from('evidence')
-    .insert({
-      id: localEvidence.id,
+  for (const evidence of audit.evidence) {
+    if (evidence.synced) continue
+
+    const file = evidenceFiles.get(evidence.id)
+    if (!file) {
+      throw new Error(`Missing local file for ${evidence.fileName}. Please reattach it before submitting.`)
+    }
+
+    const storagePath = auditId + '/' + evidence.id + '-' + file.name
+    const upload = await supabase.storage.from('audit-evidence').upload(storagePath, file, {
+      cacheControl: '3600',
+      upsert: false,
+    })
+
+    if (upload.error) throw upload.error
+
+    const evidenceInsert = await supabase.from('evidence').insert({
+      id: evidence.id,
       audit_id: auditId,
       storage_path: storagePath,
       file_name: file.name,
-      mime_type: localEvidence.mimeType,
-      media_type: localEvidence.kind,
-      area: localEvidence.area,
-      captured_at: localEvidence.capturedAt,
+      mime_type: evidence.mimeType,
+      media_type: evidence.kind,
+      area: evidence.area,
+      captured_at: evidence.capturedAt,
       ai_status: 'queued',
     })
-    .select('*')
-    .single()
 
-  if (evidenceInsert.error) throw evidenceInsert.error
+    if (evidenceInsert.error) throw evidenceInsert.error
+  }
 
-  const finding = await inspectEvidence({ ...localEvidence, synced: true })
-  const findingInsert = await supabase
-    .from('findings')
-    .insert({
-      audit_id: auditId,
-      evidence_id: localEvidence.id,
-      area: finding.area,
-      issue: finding.issue,
-      code: finding.code,
-      severity: finding.severity,
-      action: finding.action,
-      due: finding.due,
-      owner: finding.owner,
-      status: finding.status,
-    })
-    .select('id')
-    .single()
+  const unsyncedFindings = audit.findings.filter((finding) => finding.id.startsWith('finding-'))
+  if (unsyncedFindings.length) {
+    const findingInsert = await supabase.from('findings').insert(
+      unsyncedFindings.map((finding) => ({
+        audit_id: auditId,
+        evidence_id: finding.evidenceId ?? null,
+        area: finding.area,
+        issue: finding.issue,
+        code: finding.code,
+        severity: finding.severity,
+        action: finding.action,
+        due: finding.due,
+        owner: finding.owner,
+        status: finding.status,
+      })),
+    )
 
-  if (findingInsert.error) throw findingInsert.error
+    if (findingInsert.error) throw findingInsert.error
+  }
+
+  const auditUpdate = await supabase
+    .from('audits')
+    .update({ status: 'submitted', score: audit.score, submitted_at: new Date().toISOString() })
+    .eq('id', auditId)
+
+  if (auditUpdate.error) throw auditUpdate.error
 
   return {
-    evidence: { ...localEvidence, synced: true },
-    finding: { ...finding, id: findingInsert.data.id as string },
+    auditId,
+    evidence: audit.evidence.map((evidence) => ({ ...evidence, synced: true })),
   }
 }
 

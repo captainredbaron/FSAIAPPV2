@@ -17,6 +17,7 @@ export type EvidenceItem = {
 
 export type Finding = {
   id: string
+  evidenceId?: string
   area: string
   issue: string
   code: string
