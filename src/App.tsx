@@ -61,9 +61,31 @@ type AuditHistoryItem = {
   status: 'Submitted' | 'Accepted'
 }
 
-const appUsername = import.meta.env.VITE_APP_USERNAME || 'gwr'
-const appPassword = import.meta.env.VITE_APP_PASSWORD || 'audit2026'
+type AppUser = {
+  email: string
+  role: 'admin'
+}
+
+const adminEmail = import.meta.env.VITE_ADMIN_EMAIL || 'nrizkallah@gwrconsulting.com'
+const adminPassword = import.meta.env.VITE_ADMIN_PASSWORD || import.meta.env.VITE_APP_PASSWORD || 'audit2026'
 const authStorageKey = 'gwr-food-safety-authenticated'
+
+function loadSessionUser(): AppUser | null {
+  localStorage.removeItem(authStorageKey)
+
+  const rawSession = sessionStorage.getItem(authStorageKey)
+  if (!rawSession) return null
+  if (rawSession === 'true') return { email: adminEmail, role: 'admin' }
+
+  try {
+    const parsed = JSON.parse(rawSession) as Partial<AppUser>
+    if (parsed.email !== adminEmail || parsed.role !== 'admin') return null
+    return { email: adminEmail, role: 'admin' }
+  } catch {
+    sessionStorage.removeItem(authStorageKey)
+    return null
+  }
+}
 
 const assignedAudits: AssignedAudit[] = [
   {
@@ -154,9 +176,7 @@ function App() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<BlobPart[]>([])
   const evidenceFilesRef = useRef<Map<string, File>>(new Map())
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    () => localStorage.getItem(authStorageKey) === 'true',
-  )
+  const [sessionUser, setSessionUser] = useState<AppUser | null>(loadSessionUser)
   const [loginUsername, setLoginUsername] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [loginError, setLoginError] = useState<string | null>(null)
@@ -339,9 +359,10 @@ function App() {
   function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    if (loginUsername.trim() === appUsername && loginPassword === appPassword) {
-      localStorage.setItem(authStorageKey, 'true')
-      setIsAuthenticated(true)
+    if (loginUsername.trim().toLowerCase() === adminEmail.toLowerCase() && loginPassword === adminPassword) {
+      const nextUser: AppUser = { email: adminEmail, role: 'admin' }
+      sessionStorage.setItem(authStorageKey, JSON.stringify(nextUser))
+      setSessionUser(nextUser)
       setLoginError(null)
       setLoginPassword('')
       return
@@ -351,8 +372,9 @@ function App() {
   }
 
   function handleLogout() {
+    sessionStorage.removeItem(authStorageKey)
     localStorage.removeItem(authStorageKey)
-    setIsAuthenticated(false)
+    setSessionUser(null)
     setLoginUsername('')
     setLoginPassword('')
   }
@@ -370,7 +392,7 @@ function App() {
     })
   }
 
-  if (!isAuthenticated) {
+  if (!sessionUser) {
     return (
       <main className="login-shell">
         <section className="login-panel" aria-label="Auditor login">
@@ -389,8 +411,9 @@ function App() {
 
           <form className="login-form" onSubmit={handleLogin}>
             <label>
-              Username
+              Admin email
               <input
+                type="email"
                 autoComplete="username"
                 value={loginUsername}
                 onChange={(event) => setLoginUsername(event.target.value)}
@@ -457,8 +480,8 @@ function App() {
         <div className="auditor-card">
           <UserCheck size={18} />
           <div>
-            <strong>Assigned to me</strong>
-            <span>3 open audits today</span>
+            <strong>{sessionUser.email}</strong>
+            <span>GWR admin · 3 open audits today</span>
           </div>
         </div>
 

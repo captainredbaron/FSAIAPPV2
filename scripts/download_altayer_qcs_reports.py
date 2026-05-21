@@ -26,20 +26,20 @@ import requests
 
 WORKSPACE = Path.home() / ".openclaw/workspace"
 PROJECT = WORKSPACE / "gwr/food-safety-platform"
-INSTANCES_JSON = PROJECT / "training/altayer_qcs_instances.json"
-OUT_ROOT = PROJECT / "training/altayer_qcs_reports"
+DEFAULT_INSTANCES_JSON = PROJECT / "training/altayer_qcs_instances.json"
+DEFAULT_OUT_ROOT = PROJECT / "training/altayer_qcs_reports"
 BASE = "https://qualitycontrol.gwrconsulting.com"
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120"
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 
-def load_instances() -> list[dict]:
-    raw = json.loads(INSTANCES_JSON.read_text())
+def load_instances(instances_json: Path) -> list[dict]:
+    raw = json.loads(instances_json.read_text())
     rows = raw[0]["data"]["ClientAnalytics"]
     records = []
     for row in rows:
         f = row["fields"]
-        records.append({
+        record = {
             "instance_id": int(f["SurveyInstanceID"]),
             "survey_title": f.get("SurveyTitle"),
             "date": f.get("SurveyDateAndTime"),
@@ -48,7 +48,11 @@ def load_instances() -> list[dict]:
             "score": f.get("ScorePctXX_X"),
             "client_access_status_id": f.get("ClientAccessStatusID"),
             "workflow_step_id": f.get("SurveyWorkflowStepID"),
-        })
+        }
+        for key, value in f.items():
+            extra_key = re.sub(r"(?<!^)(?=[A-Z])", "_", key).lower()
+            record.setdefault(extra_key, value)
+        records.append(record)
     return sorted(records, key=lambda r: (r.get("date") or "", r["instance_id"]), reverse=True)
 
 
@@ -174,9 +178,9 @@ def download_image(cookies: dict, img: dict, dest: Path) -> tuple[dict, int | No
         return img, None, str(exc)
 
 
-def download_one(session: requests.Session, record: dict, with_images: bool, try_pdf: bool, render_pdf_enabled: bool, force: bool = False, image_workers: int = 8) -> dict:
+def download_one(session: requests.Session, out_root: Path, record: dict, with_images: bool, try_pdf: bool, render_pdf_enabled: bool, force: bool = False, image_workers: int = 8) -> dict:
     instance_id = record["instance_id"]
-    out_dir = OUT_ROOT / str(instance_id)
+    out_dir = out_root / str(instance_id)
     img_dir = out_dir / "images"
     out_dir.mkdir(parents=True, exist_ok=True)
     img_dir.mkdir(exist_ok=True)
@@ -246,20 +250,22 @@ def main() -> None:
     ap.add_argument("--shard-count", type=int, default=1)
     ap.add_argument("--shard-index", type=int, default=0)
     ap.add_argument("--only-incomplete", action="store_true", help="Retry only records whose manifest has missing image downloads")
+    ap.add_argument("--instances-json", type=Path, default=DEFAULT_INSTANCES_JSON)
+    ap.add_argument("--out-root", type=Path, default=DEFAULT_OUT_ROOT)
     args = ap.parse_args()
     if args.shard_count < 1:
         raise SystemExit("--shard-count must be >= 1")
     if args.shard_index < 0 or args.shard_index >= args.shard_count:
         raise SystemExit("--shard-index must be between 0 and shard-count - 1")
 
-    OUT_ROOT.mkdir(parents=True, exist_ok=True)
-    records = load_instances()
+    args.out_root.mkdir(parents=True, exist_ok=True)
+    records = load_instances(args.instances_json)
     if args.shard_count > 1:
         records = [record for idx, record in enumerate(records) if idx % args.shard_count == args.shard_index]
     if args.only_incomplete:
         retry_records = []
         for record in records:
-            manifest_path = OUT_ROOT / str(record["instance_id"]) / "manifest.json"
+            manifest_path = args.out_root / str(record["instance_id"]) / "manifest.json"
             if not manifest_path.exists():
                 retry_records.append(record)
                 continue
@@ -275,14 +281,14 @@ def main() -> None:
         records = records[: args.limit]
     session = login()
 
-    summary_path = OUT_ROOT / "download_manifest.jsonl"
+    summary_path = args.out_root / "download_manifest.jsonl"
     completed = 0
     total_images = 0
     total_downloaded = 0
     with summary_path.open("a", encoding="utf-8") as summary:
         for record in records:
             try:
-                result = download_one(session, record, with_images=args.with_images, try_pdf=args.try_native_pdf, render_pdf_enabled=args.render_pdf, force=args.force, image_workers=args.image_workers)
+                result = download_one(session, args.out_root, record, with_images=args.with_images, try_pdf=args.try_native_pdf, render_pdf_enabled=args.render_pdf, force=args.force, image_workers=args.image_workers)
                 completed += 1
                 total_images += result["image_count"]
                 total_downloaded += result["images_downloaded"]
@@ -302,7 +308,7 @@ def main() -> None:
         "instances_completed": completed,
         "total_images_found": total_images,
         "total_images_downloaded": total_downloaded,
-        "output": str(OUT_ROOT),
+        "output": str(args.out_root),
     }, indent=2))
 
 
